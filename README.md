@@ -25,6 +25,40 @@
 [English] | [简体中文]
 
 
+# Setup in windows
+
+1. Make sure PowerShell can find atuin
+  Test:
+    ```
+    atuin --version
+    Get-Command atuin
+    ```
+2. Enable Atuin integration in PowerShell
+
+    Create your profile if it doesn’t exist, then add Atuin init:
+    ```
+    if (!(Test-Path $PROFILE)) { New-Item -ItemType File -Force $PROFILE | Out-Null }
+    
+    Add-Content -Path $PROFILE -Value @'
+    
+    # Atuin (PowerShell integration)
+    $atuinInit = & atuin init powershell 2>$null | Out-String
+    if ($LASTEXITCODE -eq 0 -and $atuinInit.Trim().Length -gt 0) {
+      Invoke-Expression $atuinInit
+    }
+    
+    '@
+    ```
+3. One-time: import your existing PowerShell history (optional but recommended)
+
+    ```
+    atuin import auto
+    ```
+    (After this, Atuin will keep recording history via the shell integration.)
+
+# Aution
+
+
 Atuin replaces your existing shell history with a SQLite database, and records
 additional context for your commands. Additionally, it provides optional and
 _fully encrypted_ synchronisation of your history between machines, via an Atuin
