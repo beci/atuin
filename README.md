@@ -56,7 +56,7 @@
     ```
     (After this, Atuin will keep recording history via the shell integration.)
 
-# Aution
+# Atuin
 
 
 Atuin replaces your existing shell history with a SQLite database, and records
