@@ -1,0 +1,112 @@
+name: Build Atuin (Windows)
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: "Git ref to build (branch/tag/SHA). Leave empty = default branch"
+        required: false
+        default: ""
+      features:
+        description:
+          "Cargo features to enable (comma-separated, e.g. 'client,sync'). Leave empty = default"
+        required: false
+        default: ""
+      no_default_features:
+        description: "Build with --no-default-features"
+        required: false
+        type: boolean
+        default: false
+
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  build-windows:
+    name: Build (windows-latest, MSVC)
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
+
+      - name: Install Rust (stable)
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo build artifacts
+        uses: Swatinem/rust-cache@v2
+
+      - name: Print toolchain versions
+        shell: pwsh
+        run: |
+          rustc -Vv
+          cargo -V
+
+      - name: Build atuin.exe
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+
+          $noDefault = "${{ inputs.no_default_features }}".ToLowerInvariant() -eq "true"
+          $features = "${{ inputs.features }}".Trim()
+
+          function Invoke-CargoBuild([string[]]$baseArgs) {
+            $args = @($baseArgs + @("--release", "--locked"))
+            if ($noDefault) { $args += "--no-default-features" }
+            if ($features.Length -gt 0) { $args += @("--features", $features) }
+
+            Write-Host ("Running: cargo " + ($args -join " "))
+            cargo @args
+          }
+
+          # Prefer building the 'atuin' package in a workspace, but fall back if needed.
+          try {
+            Invoke-CargoBuild @("build", "-p", "atuin")
+          } catch {
+            Write-Warning "Build with '-p atuin' failed. Retrying without '-p atuin'..."
+            Invoke-CargoBuild @("build")
+          }
+
+      - name: Package artifact (ZIP)
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+
+          $bin = "target/release/atuin.exe"
+          if (!(Test-Path $bin)) {
+            $found = Get-ChildItem -Recurse "target/release" -Filter "atuin.exe" |
+              Select-Object -First 1
+            if (!$found) { throw "atuin.exe not found under target/release" }
+            $bin = $found.FullName
+          }
+
+          New-Item -ItemType Directory -Force -Path dist | Out-Null
+          Copy-Item $bin dist/atuin.exe -Force
+
+          if (Test-Path "README.md") { Copy-Item "README.md" dist/README.md -Force }
+          if (Test-Path "LICENSE") { Copy-Item "LICENSE" dist/LICENSE -Force }
+
+          $zip = "atuin-windows-x86_64-msvc.zip"
+          if (Test-Path $zip) { Remove-Item $zip -Force }
+          Compress-Archive -Path "dist/*" -DestinationPath $zip -Force
+
+          Write-Host "Created $zip"
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: atuin-windows-x86_64-msvc
+          path: atuin-windows-x86_64-msvc.zip
+          if-no-files-found: error
+
+      - name: Publish ZIP to GitHub Release (tag builds only)
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: atuin-windows-x86_64-msvc.zip
